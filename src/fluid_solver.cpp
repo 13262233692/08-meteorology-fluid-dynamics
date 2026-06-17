@@ -3,6 +3,7 @@
 #include <cmath>
 #include <algorithm>
 #include <iostream>
+#include <limits>
 
 namespace mfd {
 
@@ -15,22 +16,79 @@ FluidSolver::FluidSolver(const SolverConfig& config)
 
 FluidSolver::~FluidSolver() = default;
 
+inline bool FluidSolver::is_valid(double val) const {
+    return std::isfinite(val);
+}
+
+inline double FluidSolver::safe_val(double val, double fallback) const {
+    return std::isfinite(val) ? val : fallback;
+}
+
+void FluidSolver::sanitize_grid(Grid3D& grid, double fill_value) const {
+    const int nx = static_cast<int>(grid.nx());
+    const int ny = static_cast<int>(grid.ny());
+    const int nz = static_cast<int>(grid.nz());
+
+    #pragma omp parallel for schedule(static)
+    for (int k = 0; k < nz; ++k) {
+        for (int j = 0; j < ny; ++j) {
+            for (int i = 0; i < nx; ++i) {
+                double val = grid(i, j, k);
+                if (!std::isfinite(val)) {
+                    grid(i, j, k) = fill_value;
+                }
+            }
+        }
+    }
+}
+
+void FluidSolver::sanitize_vector_field(VectorField3D& vf, double fill_value) const {
+    sanitize_grid(vf.u, fill_value);
+    sanitize_grid(vf.v, fill_value);
+    sanitize_grid(vf.w, fill_value);
+}
+
+size_t FluidSolver::count_nan(const Grid3D& grid) const {
+    const int nx = static_cast<int>(grid.nx());
+    const int ny = static_cast<int>(grid.ny());
+    const int nz = static_cast<int>(grid.nz());
+    size_t count = 0;
+
+    #pragma omp parallel for reduction(+:count) schedule(static)
+    for (int k = 0; k < nz; ++k) {
+        for (int j = 0; j < ny; ++j) {
+            for (int i = 0; i < nx; ++i) {
+                if (!std::isfinite(grid(i, j, k))) {
+                    ++count;
+                }
+            }
+        }
+    }
+    return count;
+}
+
 inline double FluidSolver::ddx_central(const Grid3D& f, size_t i, size_t j, size_t k) const {
     size_t ip = std::min(i + 1, f.nx() - 1);
     size_t im = (i > 0) ? (i - 1) : 0;
-    return (f(ip, j, k) - f(im, j, k)) / (2.0 * f.dimensions().dx);
+    double fp = safe_val(f(ip, j, k), 0.0);
+    double fm = safe_val(f(im, j, k), 0.0);
+    return (fp - fm) / (2.0 * f.dimensions().dx);
 }
 
 inline double FluidSolver::ddy_central(const Grid3D& f, size_t i, size_t j, size_t k) const {
     size_t jp = std::min(j + 1, f.ny() - 1);
     size_t jm = (j > 0) ? (j - 1) : 0;
-    return (f(i, jp, k) - f(i, jm, k)) / (2.0 * f.dimensions().dy);
+    double fp = safe_val(f(i, jp, k), 0.0);
+    double fm = safe_val(f(i, jm, k), 0.0);
+    return (fp - fm) / (2.0 * f.dimensions().dy);
 }
 
 inline double FluidSolver::ddz_central(const Grid3D& f, size_t i, size_t j, size_t k) const {
     size_t kp = std::min(k + 1, f.nz() - 1);
     size_t km = (k > 0) ? (k - 1) : 0;
-    return (f(i, j, kp) - f(i, j, km)) / (2.0 * f.dimensions().dz);
+    double fp = safe_val(f(i, j, kp), 0.0);
+    double fm = safe_val(f(i, j, km), 0.0);
+    return (fp - fm) / (2.0 * f.dimensions().dz);
 }
 
 inline double FluidSolver::laplacian(const Grid3D& f, size_t i, size_t j, size_t k) const {
@@ -41,13 +99,21 @@ inline double FluidSolver::laplacian(const Grid3D& f, size_t i, size_t j, size_t
     size_t kp = std::min(k + 1, f.nz() - 1);
     size_t km = (k > 0) ? (k - 1) : 0;
 
+    double fc = safe_val(f(i, j, k), 0.0);
+    double f_ip = safe_val(f(ip, j, k), 0.0);
+    double f_im = safe_val(f(im, j, k), 0.0);
+    double f_jp = safe_val(f(i, jp, k), 0.0);
+    double f_jm = safe_val(f(i, jm, k), 0.0);
+    double f_kp = safe_val(f(i, j, kp), 0.0);
+    double f_km = safe_val(f(i, j, km), 0.0);
+
     double dx2 = f.dimensions().dx * f.dimensions().dx;
     double dy2 = f.dimensions().dy * f.dimensions().dy;
     double dz2 = f.dimensions().dz * f.dimensions().dz;
 
-    return (f(ip, j, k) - 2.0 * f(i, j, k) + f(im, j, k)) / dx2 +
-           (f(i, jp, k) - 2.0 * f(i, j, k) + f(i, jm, k)) / dy2 +
-           (f(i, j, kp) - 2.0 * f(i, j, k) + f(i, j, km)) / dz2;
+    return (f_ip - 2.0 * fc + f_im) / dx2 +
+           (f_jp - 2.0 * fc + f_jm) / dy2 +
+           (f_kp - 2.0 * fc + f_km) / dz2;
 }
 
 void FluidSolver::compute_divergence(const VectorField3D& velocity, Grid3D& divergence) const {
@@ -61,15 +127,17 @@ void FluidSolver::compute_divergence(const VectorField3D& velocity, Grid3D& dive
         divergence.allocate(static_cast<size_t>(nx), static_cast<size_t>(ny), static_cast<size_t>(nz));
         divergence.dimensions() = velocity.u.dimensions();
     }
+    divergence.fill(0.0);
 
-    #pragma omp parallel for schedule(dynamic, 8)
+    #pragma omp parallel for schedule(static, 1)
     for (int k = 0; k < nz; ++k) {
         for (int j = 0; j < ny; ++j) {
             for (int i = 0; i < nx; ++i) {
                 double dudx = ddx_central(velocity.u, i, j, k);
                 double dvdy = ddy_central(velocity.v, i, j, k);
                 double dwdz = ddz_central(velocity.w, i, j, k);
-                divergence(i, j, k) = dudx + dvdy + dwdz;
+                double div = dudx + dvdy + dwdz;
+                divergence(i, j, k) = safe_val(div, 0.0);
             }
         }
     }
@@ -88,22 +156,25 @@ void FluidSolver::compute_vorticity(const VectorField3D& velocity, VectorField3D
         vorticity.v.dimensions() = velocity.u.dimensions();
         vorticity.w.dimensions() = velocity.u.dimensions();
     }
+    vorticity.u.fill(0.0);
+    vorticity.v.fill(0.0);
+    vorticity.w.fill(0.0);
 
-    #pragma omp parallel for schedule(dynamic, 8)
+    #pragma omp parallel for schedule(static, 1)
     for (int k = 0; k < nz; ++k) {
         for (int j = 0; j < ny; ++j) {
             for (int i = 0; i < nx; ++i) {
                 double dwdy = ddy_central(velocity.w, i, j, k);
                 double dvdz = ddz_central(velocity.v, i, j, k);
-                vorticity.u(i, j, k) = dwdy - dvdz;
+                vorticity.u(i, j, k) = safe_val(dwdy - dvdz, 0.0);
 
                 double dudz = ddz_central(velocity.u, i, j, k);
                 double dwdx = ddx_central(velocity.w, i, j, k);
-                vorticity.v(i, j, k) = dudz - dwdx;
+                vorticity.v(i, j, k) = safe_val(dudz - dwdx, 0.0);
 
                 double dvdx = ddx_central(velocity.v, i, j, k);
                 double dudy = ddy_central(velocity.u, i, j, k);
-                vorticity.w(i, j, k) = dvdx - dudy;
+                vorticity.w(i, j, k) = safe_val(dvdx - dudy, 0.0);
             }
         }
     }
@@ -120,15 +191,17 @@ void FluidSolver::compute_vorticity_magnitude(const VectorField3D& vorticity, Gr
         magnitude.allocate(static_cast<size_t>(nx), static_cast<size_t>(ny), static_cast<size_t>(nz));
         magnitude.dimensions() = vorticity.u.dimensions();
     }
+    magnitude.fill(0.0);
 
-    #pragma omp parallel for schedule(dynamic, 8)
+    #pragma omp parallel for schedule(static, 1)
     for (int k = 0; k < nz; ++k) {
         for (int j = 0; j < ny; ++j) {
             for (int i = 0; i < nx; ++i) {
-                double wx = vorticity.u(i, j, k);
-                double wy = vorticity.v(i, j, k);
-                double wz = vorticity.w(i, j, k);
-                magnitude(i, j, k) = std::sqrt(wx * wx + wy * wy + wz * wz);
+                double wx = safe_val(vorticity.u(i, j, k), 0.0);
+                double wy = safe_val(vorticity.v(i, j, k), 0.0);
+                double wz = safe_val(vorticity.w(i, j, k), 0.0);
+                double mag = std::sqrt(wx * wx + wy * wy + wz * wz);
+                magnitude(i, j, k) = safe_val(mag, 0.0);
             }
         }
     }
@@ -141,43 +214,39 @@ void FluidSolver::apply_boundary_conditions(VectorField3D& velocity) const {
 
     if (nx < 2 || ny < 2 || nz < 2) return;
 
-    #pragma omp parallel
-    {
-        #pragma omp for schedule(static)
-        for (int j = 0; j < ny; ++j) {
-            for (int k = 0; k < nz; ++k) {
-                velocity.u(0, j, k) = 0.0;
-                velocity.v(0, j, k) = 0.0;
-                velocity.w(0, j, k) = 0.0;
-                velocity.u(nx - 1, j, k) = 0.0;
-                velocity.v(nx - 1, j, k) = 0.0;
-                velocity.w(nx - 1, j, k) = 0.0;
+    #pragma omp parallel for schedule(static, 1)
+    for (int idx = 0; idx < (2 * ny * nz + 2 * (nx - 2) * nz + 2 * (nx - 2) * (ny - 2)); ++idx) {
+        int i, j, k;
+        int face = 0;
+        int rem = idx;
+
+        if (rem < 2 * ny * nz) {
+            face = (rem < ny * nz) ? 0 : 1;
+            rem = rem % (ny * nz);
+            j = rem / nz;
+            k = rem % nz;
+            i = (face == 0) ? 0 : (nx - 1);
+        } else {
+            rem -= 2 * ny * nz;
+            if (rem < 2 * (nx - 2) * nz) {
+                face = (rem < (nx - 2) * nz) ? 2 : 3;
+                rem = rem % ((nx - 2) * nz);
+                i = (rem / nz) + 1;
+                k = rem % nz;
+                j = (face == 2) ? 0 : (ny - 1);
+            } else {
+                rem -= 2 * (nx - 2) * nz;
+                face = (rem < (nx - 2) * (ny - 2)) ? 4 : 5;
+                rem = rem % ((nx - 2) * (ny - 2));
+                i = (rem / (ny - 2)) + 1;
+                j = (rem % (ny - 2)) + 1;
+                k = (face == 4) ? 0 : (nz - 1);
             }
         }
 
-        #pragma omp for schedule(static)
-        for (int i = 0; i < nx; ++i) {
-            for (int k = 0; k < nz; ++k) {
-                velocity.u(i, 0, k) = 0.0;
-                velocity.v(i, 0, k) = 0.0;
-                velocity.w(i, 0, k) = 0.0;
-                velocity.u(i, ny - 1, k) = 0.0;
-                velocity.v(i, ny - 1, k) = 0.0;
-                velocity.w(i, ny - 1, k) = 0.0;
-            }
-        }
-
-        #pragma omp for schedule(static)
-        for (int i = 0; i < nx; ++i) {
-            for (int j = 0; j < ny; ++j) {
-                velocity.u(i, j, 0) = 0.0;
-                velocity.v(i, j, 0) = 0.0;
-                velocity.w(i, j, 0) = 0.0;
-                velocity.u(i, j, nz - 1) = 0.0;
-                velocity.v(i, j, nz - 1) = 0.0;
-                velocity.w(i, j, nz - 1) = 0.0;
-            }
-        }
+        velocity.u(i, j, k) = 0.0;
+        velocity.v(i, j, k) = 0.0;
+        velocity.w(i, j, k) = 0.0;
     }
 }
 
@@ -192,13 +261,21 @@ void FluidSolver::diffuse_velocity(VectorField3D& velocity, double dt) const {
     temp.v.dimensions() = velocity.u.dimensions();
     temp.w.dimensions() = velocity.u.dimensions();
 
-    #pragma omp parallel for schedule(dynamic, 8)
+    #pragma omp parallel for schedule(static, 1)
     for (int k = 1; k < nz - 1; ++k) {
         for (int j = 1; j < ny - 1; ++j) {
             for (int i = 1; i < nx - 1; ++i) {
-                temp.u(i, j, k) = velocity.u(i, j, k) + nu * dt * laplacian(velocity.u, i, j, k);
-                temp.v(i, j, k) = velocity.v(i, j, k) + nu * dt * laplacian(velocity.v, i, j, k);
-                temp.w(i, j, k) = velocity.w(i, j, k) + nu * dt * laplacian(velocity.w, i, j, k);
+                double lap_u = laplacian(velocity.u, i, j, k);
+                double lap_v = laplacian(velocity.v, i, j, k);
+                double lap_w = laplacian(velocity.w, i, j, k);
+
+                double u_new = safe_val(velocity.u(i, j, k), 0.0) + nu * dt * lap_u;
+                double v_new = safe_val(velocity.v(i, j, k), 0.0) + nu * dt * lap_v;
+                double w_new = safe_val(velocity.w(i, j, k), 0.0) + nu * dt * lap_w;
+
+                temp.u(i, j, k) = safe_val(u_new, 0.0);
+                temp.v(i, j, k) = safe_val(v_new, 0.0);
+                temp.w(i, j, k) = safe_val(w_new, 0.0);
             }
         }
     }
@@ -206,6 +283,8 @@ void FluidSolver::diffuse_velocity(VectorField3D& velocity, double dt) const {
     velocity.u.data_vector().swap(temp.u.data_vector());
     velocity.v.data_vector().swap(temp.v.data_vector());
     velocity.w.data_vector().swap(temp.w.data_vector());
+
+    apply_boundary_conditions(velocity);
 }
 
 void FluidSolver::advect_velocity(VectorField3D& velocity, double dt) const {
@@ -219,46 +298,87 @@ void FluidSolver::advect_velocity(VectorField3D& velocity, double dt) const {
     temp.v.dimensions() = dims;
     temp.w.dimensions() = dims;
 
-    #pragma omp parallel for schedule(dynamic, 4)
+    const double max_displacement = static_cast<double>(std::min({nx, ny, nz})) * 0.45;
+
+    #pragma omp parallel for schedule(static, 1)
     for (int k = 1; k < nz - 1; ++k) {
         for (int j = 1; j < ny - 1; ++j) {
             for (int i = 1; i < nx - 1; ++i) {
-                double u = velocity.u(i, j, k);
-                double v = velocity.v(i, j, k);
-                double w = velocity.w(i, j, k);
+                double u = safe_val(velocity.u(i, j, k), 0.0);
+                double v = safe_val(velocity.v(i, j, k), 0.0);
+                double w = safe_val(velocity.w(i, j, k), 0.0);
 
-                double x = static_cast<double>(i) - u * dt / dims.dx;
-                double y = static_cast<double>(j) - v * dt / dims.dy;
-                double z = static_cast<double>(k) - w * dt / dims.dz;
+                double dx = u * dt / dims.dx;
+                double dy = v * dt / dims.dy;
+                double dz = w * dt / dims.dz;
 
-                x = std::max(0.0, std::min(static_cast<double>(nx - 1), x));
-                y = std::max(0.0, std::min(static_cast<double>(ny - 1), y));
-                z = std::max(0.0, std::min(static_cast<double>(nz - 1), z));
+                double disp = std::sqrt(dx * dx + dy * dy + dz * dz);
+                if (disp > max_displacement) {
+                    double scale = max_displacement / disp;
+                    dx *= scale;
+                    dy *= scale;
+                    dz *= scale;
+                }
+
+                double x = static_cast<double>(i) - dx;
+                double y = static_cast<double>(j) - dy;
+                double z = static_cast<double>(k) - dz;
+
+                x = std::max(0.5, std::min(static_cast<double>(nx - 1) - 0.5, x));
+                y = std::max(0.5, std::min(static_cast<double>(ny - 1) - 0.5, y));
+                z = std::max(0.5, std::min(static_cast<double>(nz - 1) - 0.5, z));
+
+                if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+                    temp.u(i, j, k) = u;
+                    temp.v(i, j, k) = v;
+                    temp.w(i, j, k) = w;
+                    continue;
+                }
 
                 int ix = static_cast<int>(std::floor(x));
                 int iy = static_cast<int>(std::floor(y));
                 int iz = static_cast<int>(std::floor(z));
+
+                ix = std::max(0, std::min(nx - 2, ix));
+                iy = std::max(0, std::min(ny - 2, iy));
+                iz = std::max(0, std::min(nz - 2, iz));
+
                 int ix1 = std::min(ix + 1, nx - 1);
                 int iy1 = std::min(iy + 1, ny - 1);
                 int iz1 = std::min(iz + 1, nz - 1);
 
-                double tx = x - ix;
-                double ty = y - iy;
-                double tz = z - iz;
+                double tx = std::max(0.0, std::min(1.0, x - ix));
+                double ty = std::max(0.0, std::min(1.0, y - iy));
+                double tz = std::max(0.0, std::min(1.0, z - iz));
 
                 auto interp = [&](const Grid3D& f) -> double {
-                    double c00 = f(ix, iy, iz) * (1 - tx) + f(ix1, iy, iz) * tx;
-                    double c10 = f(ix, iy1, iz) * (1 - tx) + f(ix1, iy1, iz) * tx;
-                    double c01 = f(ix, iy, iz1) * (1 - tx) + f(ix1, iy, iz1) * tx;
-                    double c11 = f(ix, iy1, iz1) * (1 - tx) + f(ix1, iy1, iz1) * tx;
+                    double f000 = safe_val(f(ix, iy, iz), 0.0);
+                    double f100 = safe_val(f(ix1, iy, iz), 0.0);
+                    double f010 = safe_val(f(ix, iy1, iz), 0.0);
+                    double f110 = safe_val(f(ix1, iy1, iz), 0.0);
+                    double f001 = safe_val(f(ix, iy, iz1), 0.0);
+                    double f101 = safe_val(f(ix1, iy, iz1), 0.0);
+                    double f011 = safe_val(f(ix, iy1, iz1), 0.0);
+                    double f111 = safe_val(f(ix1, iy1, iz1), 0.0);
+
+                    double c00 = f000 * (1 - tx) + f100 * tx;
+                    double c10 = f010 * (1 - tx) + f110 * tx;
+                    double c01 = f001 * (1 - tx) + f101 * tx;
+                    double c11 = f011 * (1 - tx) + f111 * tx;
+
                     double c0 = c00 * (1 - ty) + c10 * ty;
                     double c1 = c01 * (1 - ty) + c11 * ty;
+
                     return c0 * (1 - tz) + c1 * tz;
                 };
 
-                temp.u(i, j, k) = interp(velocity.u);
-                temp.v(i, j, k) = interp(velocity.v);
-                temp.w(i, j, k) = interp(velocity.w);
+                double new_u = interp(velocity.u);
+                double new_v = interp(velocity.v);
+                double new_w = interp(velocity.w);
+
+                temp.u(i, j, k) = safe_val(new_u, u);
+                temp.v(i, j, k) = safe_val(new_v, v);
+                temp.w(i, j, k) = safe_val(new_w, w);
             }
         }
     }
@@ -266,6 +386,8 @@ void FluidSolver::advect_velocity(VectorField3D& velocity, double dt) const {
     velocity.u.data_vector().swap(temp.u.data_vector());
     velocity.v.data_vector().swap(temp.v.data_vector());
     velocity.w.data_vector().swap(temp.w.data_vector());
+
+    apply_boundary_conditions(velocity);
 }
 
 void FluidSolver::add_buoyancy_term(VectorField3D& velocity, const Grid3D& reflectivity) const {
@@ -275,14 +397,15 @@ void FluidSolver::add_buoyancy_term(VectorField3D& velocity, const Grid3D& refle
     const double g = 9.81;
     const double rho0 = config_.density;
 
-    #pragma omp parallel for schedule(dynamic, 8)
+    #pragma omp parallel for schedule(static, 1)
     for (int k = 1; k < nz - 1; ++k) {
         for (int j = 1; j < ny - 1; ++j) {
             for (int i = 1; i < nx - 1; ++i) {
-                double dbz = reflectivity(i, j, k);
+                double dbz = safe_val(reflectivity(i, j, k), 0.0);
                 if (dbz > 10.0) {
                     double buoyancy = g * (dbz - 10.0) / (50.0 * rho0);
-                    velocity.w(i, j, k) += buoyancy * config_.time_step;
+                    double w_new = safe_val(velocity.w(i, j, k), 0.0) + buoyancy * config_.time_step;
+                    velocity.w(i, j, k) = safe_val(w_new, 0.0);
                 }
             }
         }
@@ -298,14 +421,15 @@ void FluidSolver::compute_pressure_poisson(const VectorField3D& velocity, Grid3D
     Grid3D rhs(static_cast<size_t>(nx), static_cast<size_t>(ny), static_cast<size_t>(nz),
                 dims.dx, dims.dy, dims.dz);
 
-    #pragma omp parallel for schedule(dynamic, 8)
+    #pragma omp parallel for schedule(static, 1)
     for (int k = 1; k < nz - 1; ++k) {
         for (int j = 1; j < ny - 1; ++j) {
             for (int i = 1; i < nx - 1; ++i) {
                 double dudx = ddx_central(velocity.u, i, j, k);
                 double dvdy = ddy_central(velocity.v, i, j, k);
                 double dwdz = ddz_central(velocity.w, i, j, k);
-                rhs(i, j, k) = (dudx + dvdy + dwdz) / config_.time_step;
+                double div = dudx + dvdy + dwdz;
+                rhs(i, j, k) = safe_val(div, 0.0) / config_.time_step;
             }
         }
     }
@@ -313,6 +437,7 @@ void FluidSolver::compute_pressure_poisson(const VectorField3D& velocity, Grid3D
     pressure.fill(0.0);
     Grid3D pressure_new(static_cast<size_t>(nx), static_cast<size_t>(ny), static_cast<size_t>(nz),
                          dims.dx, dims.dy, dims.dz);
+    pressure_new.fill(0.0);
 
     double dx2 = dims.dx * dims.dx;
     double dy2 = dims.dy * dims.dy;
@@ -321,19 +446,31 @@ void FluidSolver::compute_pressure_poisson(const VectorField3D& velocity, Grid3D
 
     const int jacobi_iterations = 80;
     for (int iter = 0; iter < jacobi_iterations; ++iter) {
-        #pragma omp parallel for schedule(dynamic, 8)
+        #pragma omp parallel for schedule(static, 1)
         for (int k = 1; k < nz - 1; ++k) {
             for (int j = 1; j < ny - 1; ++j) {
                 for (int i = 1; i < nx - 1; ++i) {
-                    double sum = (pressure(i + 1, j, k) + pressure(i - 1, j, k)) / dx2 +
-                                 (pressure(i, j + 1, k) + pressure(i, j - 1, k)) / dy2 +
-                                 (pressure(i, j, k + 1) + pressure(i, j, k - 1)) / dz2;
-                    pressure_new(i, j, k) = (sum - rhs(i, j, k)) * inv_coeff;
+                    double p_ip = safe_val(pressure(i + 1, j, k), 0.0);
+                    double p_im = safe_val(pressure(i - 1, j, k), 0.0);
+                    double p_jp = safe_val(pressure(i, j + 1, k), 0.0);
+                    double p_jm = safe_val(pressure(i, j - 1, k), 0.0);
+                    double p_kp = safe_val(pressure(i, j, k + 1), 0.0);
+                    double p_km = safe_val(pressure(i, j, k - 1), 0.0);
+
+                    double sum = (p_ip + p_im) / dx2 +
+                                 (p_jp + p_jm) / dy2 +
+                                 (p_kp + p_km) / dz2;
+
+                    double r = safe_val(rhs(i, j, k), 0.0);
+                    double p_new = (sum - r) * inv_coeff;
+                    pressure_new(i, j, k) = safe_val(p_new, 0.0);
                 }
             }
         }
 
-        #pragma omp parallel for schedule(dynamic, 16)
+        #pragma omp barrier
+
+        #pragma omp parallel for schedule(static, 1)
         for (int k = 1; k < nz - 1; ++k) {
             for (int j = 1; j < ny - 1; ++j) {
                 for (int i = 1; i < nx - 1; ++i) {
@@ -341,6 +478,8 @@ void FluidSolver::compute_pressure_poisson(const VectorField3D& velocity, Grid3D
                 }
             }
         }
+
+        #pragma omp barrier
     }
 }
 
@@ -349,14 +488,23 @@ void FluidSolver::apply_pressure_gradient(VectorField3D& velocity, const Grid3D&
     const int ny = static_cast<int>(velocity.ny());
     const int nz = static_cast<int>(velocity.nz());
     const double rho = config_.density;
+    const double dt_over_rho = config_.time_step / rho;
 
-    #pragma omp parallel for schedule(dynamic, 8)
+    #pragma omp parallel for schedule(static, 1)
     for (int k = 1; k < nz - 1; ++k) {
         for (int j = 1; j < ny - 1; ++j) {
             for (int i = 1; i < nx - 1; ++i) {
-                velocity.u(i, j, k) -= config_.time_step / rho * ddx_central(pressure, i, j, k);
-                velocity.v(i, j, k) -= config_.time_step / rho * ddy_central(pressure, i, j, k);
-                velocity.w(i, j, k) -= config_.time_step / rho * ddz_central(pressure, i, j, k);
+                double dpdx = ddx_central(pressure, i, j, k);
+                double dpdy = ddy_central(pressure, i, j, k);
+                double dpdz = ddz_central(pressure, i, j, k);
+
+                double u_new = safe_val(velocity.u(i, j, k), 0.0) - dt_over_rho * dpdx;
+                double v_new = safe_val(velocity.v(i, j, k), 0.0) - dt_over_rho * dpdy;
+                double w_new = safe_val(velocity.w(i, j, k), 0.0) - dt_over_rho * dpdz;
+
+                velocity.u(i, j, k) = safe_val(u_new, 0.0);
+                velocity.v(i, j, k) = safe_val(v_new, 0.0);
+                velocity.w(i, j, k) = safe_val(w_new, 0.0);
             }
         }
     }
@@ -367,11 +515,14 @@ void FluidSolver::enforce_incompressibility(VectorField3D& velocity, int iterati
     const auto& dims = velocity.u.dimensions();
     pressure.allocate(dims.nx, dims.ny, dims.nz);
     pressure.dimensions() = dims;
+    pressure.fill(0.0);
 
     for (int iter = 0; iter < iterations; ++iter) {
         compute_pressure_poisson(velocity, pressure);
         apply_pressure_gradient(velocity, pressure);
     }
+
+    apply_boundary_conditions(velocity);
 }
 
 void FluidSolver::compute_velocity_from_radial(const Grid3D& radial_wind,
@@ -397,12 +548,12 @@ void FluidSolver::compute_velocity_from_radial(const Grid3D& radial_wind,
     double cos_az = std::cos(azimuth * M_PI / 180.0);
     double sin_az = std::sin(azimuth * M_PI / 180.0);
 
-    #pragma omp parallel for schedule(dynamic, 8)
+    #pragma omp parallel for schedule(static, 1)
     for (int k = 0; k < nz; ++k) {
         for (int j = 0; j < ny; ++j) {
             for (int i = 0; i < nx; ++i) {
                 double vr = radial_wind(i, j, k);
-                if (std::isnan(vr) || std::isinf(vr)) {
+                if (!std::isfinite(vr)) {
                     velocity.u(i, j, k) = 0.0;
                     velocity.v(i, j, k) = 0.0;
                     velocity.w(i, j, k) = 0.0;
@@ -415,6 +566,8 @@ void FluidSolver::compute_velocity_from_radial(const Grid3D& radial_wind,
         }
     }
 
+    sanitize_vector_field(velocity, 0.0);
+    apply_boundary_conditions(velocity);
     enforce_incompressibility(velocity, 30);
     (void)reflectivity;
 }
@@ -424,18 +577,29 @@ void FluidSolver::solve_navier_stokes_simplified(VectorField3D& velocity,
                                                    int iterations) {
     int iters = (iterations > 0) ? iterations : config_.max_iterations;
 
+    sanitize_vector_field(velocity, 0.0);
     apply_boundary_conditions(velocity);
 
     for (int iter = 0; iter < iters; ++iter) {
+        size_t nan_count_before = count_nan(velocity.u) + count_nan(velocity.v) + count_nan(velocity.w);
+        if (nan_count_before > 0) {
+            std::cerr << "  [WARNING] NaN detected before NS iteration " << iter
+                      << ": " << nan_count_before << " values" << std::endl;
+            sanitize_vector_field(velocity, 0.0);
+        }
+
         add_buoyancy_term(velocity, reflectivity);
-
         advect_velocity(velocity, config_.time_step);
-
         diffuse_velocity(velocity, config_.time_step);
-
         enforce_incompressibility(velocity, 20);
-
         apply_boundary_conditions(velocity);
+
+        size_t nan_count_after = count_nan(velocity.u) + count_nan(velocity.v) + count_nan(velocity.w);
+        if (nan_count_after > 0) {
+            std::cerr << "  [WARNING] NaN detected after NS iteration " << iter
+                      << ": " << nan_count_after << " values, sanitizing..." << std::endl;
+            sanitize_vector_field(velocity, 0.0);
+        }
 
         Grid3D div;
         compute_divergence(velocity, div);
@@ -445,11 +609,11 @@ void FluidSolver::solve_navier_stokes_simplified(VectorField3D& velocity,
         const int nz = static_cast<int>(div.nz());
 
         double max_div = 0.0;
-        #pragma omp parallel for reduction(max:max_div) schedule(dynamic)
+        #pragma omp parallel for reduction(max:max_div) schedule(static)
         for (int k = 0; k < nz; ++k) {
             for (int j = 0; j < ny; ++j) {
                 for (int i = 0; i < nx; ++i) {
-                    double d = std::abs(div(i, j, k));
+                    double d = std::abs(safe_val(div(i, j, k), 0.0));
                     if (d > max_div) max_div = d;
                 }
             }
@@ -464,6 +628,9 @@ void FluidSolver::solve_navier_stokes_simplified(VectorField3D& velocity,
             break;
         }
     }
+
+    sanitize_vector_field(velocity, 0.0);
+    apply_boundary_conditions(velocity);
 }
 
 }  // namespace mfd

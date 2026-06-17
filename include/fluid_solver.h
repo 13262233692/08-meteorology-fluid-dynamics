@@ -47,6 +47,10 @@ public:
 
     void enforce_incompressibility(VectorField3D& velocity, int iterations = 50);
 
+    void sanitize_grid(Grid3D& grid, double fill_value = 0.0) const;
+    void sanitize_vector_field(VectorField3D& vf, double fill_value = 0.0) const;
+    size_t count_nan(const Grid3D& grid) const;
+
     void set_config(const SolverConfig& config) { config_ = config; }
     const SolverConfig& config() const { return config_; }
 
@@ -63,6 +67,9 @@ private:
     inline double ddy_central(const Grid3D& f, size_t i, size_t j, size_t k) const;
     inline double ddz_central(const Grid3D& f, size_t i, size_t j, size_t k) const;
     inline double laplacian(const Grid3D& f, size_t i, size_t j, size_t k) const;
+
+    inline bool is_valid(double val) const;
+    inline double safe_val(double val, double fallback = 0.0) const;
 };
 
 }  // namespace mfd

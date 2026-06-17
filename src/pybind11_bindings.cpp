@@ -202,6 +202,15 @@ PYBIND11_MODULE(mfd, m) {
         .def("apply_boundary_conditions", &FluidSolver::apply_boundary_conditions)
         .def("enforce_incompressibility", &FluidSolver::enforce_incompressibility,
              py::arg("velocity"), py::arg("iterations") = 50)
+        .def("sanitize_grid", &FluidSolver::sanitize_grid,
+             py::arg("grid"), py::arg("fill_value") = 0.0,
+             "Remove NaN/Inf values from grid, replace with fill_value")
+        .def("sanitize_vector_field", &FluidSolver::sanitize_vector_field,
+             py::arg("vf"), py::arg("fill_value") = 0.0,
+             "Remove NaN/Inf values from vector field, replace with fill_value")
+        .def("count_nan", &FluidSolver::count_nan,
+             py::arg("grid"),
+             "Count number of NaN/Inf values in grid")
         .def_property("config",
                      py::overload_cast<>(&FluidSolver::config, py::const_),
                      &FluidSolver::set_config);
