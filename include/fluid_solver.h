@@ -2,6 +2,9 @@
 #define MFD_FLUID_SOLVER_H
 
 #include "grid3d.h"
+#include <unordered_map>
+#include <string>
+#include <vector>
 
 namespace mfd {
 
@@ -20,6 +23,54 @@ struct SolverConfig {
         , max_iterations(100)
         , convergence_tolerance(1e-6)
         , num_threads(0) {}
+};
+
+struct AdvectionDiffusionConfig {
+    double diffusion_coeff_x;
+    double diffusion_coeff_y;
+    double diffusion_coeff_z;
+    double time_step;
+    double total_time;
+    double output_interval;
+    double source_strength;
+    double source_decay_rate;
+    double background_concentration;
+    int source_grid_i;
+    int source_grid_j;
+    int source_grid_k;
+    double source_radius;
+    int num_threads;
+
+    AdvectionDiffusionConfig()
+        : diffusion_coeff_x(100.0)
+        , diffusion_coeff_y(100.0)
+        , diffusion_coeff_z(10.0)
+        , time_step(10.0)
+        , total_time(86400.0)
+        , output_interval(3600.0)
+        , source_strength(1.0e6)
+        , source_decay_rate(0.0)
+        , background_concentration(0.0)
+        , source_grid_i(-1)
+        , source_grid_j(-1)
+        , source_grid_k(-1)
+        , source_radius(1000.0)
+        , num_threads(0) {}
+};
+
+struct AerosolSource {
+    int i, j, k;
+    double strength;
+    double start_time;
+    double end_time;
+    double radius;
+    std::string name;
+};
+
+struct SimulationFrame {
+    double time;
+    Grid3D concentration;
+    std::unordered_map<std::string, double> metadata;
 };
 
 class FluidSolver {
@@ -50,6 +101,30 @@ public:
     void sanitize_grid(Grid3D& grid, double fill_value = 0.0) const;
     void sanitize_vector_field(VectorField3D& vf, double fill_value = 0.0) const;
     size_t count_nan(const Grid3D& grid) const;
+
+    void advect_concentration(const VectorField3D& velocity,
+                               const Grid3D& concentration,
+                               Grid3D& concentration_new,
+                               double dt) const;
+
+    void diffuse_concentration(const Grid3D& concentration,
+                                 Grid3D& concentration_new,
+                                 double dt,
+                                 double Kx, double Ky, double Kz) const;
+
+    void apply_source_term(Grid3D& concentration,
+                           const std::vector<AerosolSource>& sources,
+                           double current_time,
+                           double dt) const;
+
+    void apply_concentration_boundary_conditions(Grid3D& concentration,
+                                                    double boundary_value = 0.0) const;
+
+    void solve_advection_diffusion(const VectorField3D& velocity,
+                                    Grid3D& concentration,
+                                    const AdvectionDiffusionConfig& config,
+                                    const std::vector<AerosolSource>& sources,
+                                    const std::string& output_dir = "");
 
     void set_config(const SolverConfig& config) { config_ = config; }
     const SolverConfig& config() const { return config_; }

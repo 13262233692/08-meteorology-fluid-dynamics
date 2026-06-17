@@ -120,6 +120,9 @@ PYBIND11_MODULE(mfd, m) {
         .def_property_readonly("data_ptr", [](const Grid3D& g) {
             return reinterpret_cast<uint64_t>(g.data());
         }, "Raw pointer to underlying data (as integer)")
+        .def("swap", [](Grid3D& g, Grid3D& other) {
+            g.data_vector().swap(other.data_vector());
+        }, py::arg("other"), "Efficiently swap data with another Grid3D")
         .def_buffer([](Grid3D& g) -> py::buffer_info {
             return py::buffer_info(
                 g.data(), sizeof(double), py::format_descriptor<double>::format(),
@@ -186,6 +189,34 @@ PYBIND11_MODULE(mfd, m) {
         .def_readwrite("convergence_tolerance", &SolverConfig::convergence_tolerance)
         .def_readwrite("num_threads", &SolverConfig::num_threads);
 
+    py::class_<AdvectionDiffusionConfig>(m, "AdvectionDiffusionConfig")
+        .def(py::init<>())
+        .def_readwrite("diffusion_coeff_x", &AdvectionDiffusionConfig::diffusion_coeff_x)
+        .def_readwrite("diffusion_coeff_y", &AdvectionDiffusionConfig::diffusion_coeff_y)
+        .def_readwrite("diffusion_coeff_z", &AdvectionDiffusionConfig::diffusion_coeff_z)
+        .def_readwrite("time_step", &AdvectionDiffusionConfig::time_step)
+        .def_readwrite("total_time", &AdvectionDiffusionConfig::total_time)
+        .def_readwrite("output_interval", &AdvectionDiffusionConfig::output_interval)
+        .def_readwrite("source_strength", &AdvectionDiffusionConfig::source_strength)
+        .def_readwrite("source_decay_rate", &AdvectionDiffusionConfig::source_decay_rate)
+        .def_readwrite("background_concentration", &AdvectionDiffusionConfig::background_concentration)
+        .def_readwrite("source_grid_i", &AdvectionDiffusionConfig::source_grid_i)
+        .def_readwrite("source_grid_j", &AdvectionDiffusionConfig::source_grid_j)
+        .def_readwrite("source_grid_k", &AdvectionDiffusionConfig::source_grid_k)
+        .def_readwrite("source_radius", &AdvectionDiffusionConfig::source_radius)
+        .def_readwrite("num_threads", &AdvectionDiffusionConfig::num_threads);
+
+    py::class_<AerosolSource>(m, "AerosolSource")
+        .def(py::init<>())
+        .def_readwrite("i", &AerosolSource::i)
+        .def_readwrite("j", &AerosolSource::j)
+        .def_readwrite("k", &AerosolSource::k)
+        .def_readwrite("strength", &AerosolSource::strength)
+        .def_readwrite("start_time", &AerosolSource::start_time)
+        .def_readwrite("end_time", &AerosolSource::end_time)
+        .def_readwrite("radius", &AerosolSource::radius)
+        .def_readwrite("name", &AerosolSource::name);
+
     py::class_<FluidSolver>(m, "FluidSolver")
         .def(py::init<const SolverConfig&>(), py::arg("config") = SolverConfig())
         .def("compute_divergence", &FluidSolver::compute_divergence,
@@ -211,9 +242,30 @@ PYBIND11_MODULE(mfd, m) {
         .def("count_nan", &FluidSolver::count_nan,
              py::arg("grid"),
              "Count number of NaN/Inf values in grid")
-        .def_property("config",
-                     py::overload_cast<>(&FluidSolver::config, py::const_),
-                     &FluidSolver::set_config);
+        .def("advect_concentration", &FluidSolver::advect_concentration,
+             py::arg("velocity"), py::arg("concentration"), 
+             py::arg("concentration_new"), py::arg("dt"),
+             "Advect concentration field using semi-Lagrangian method")
+        .def("diffuse_concentration", &FluidSolver::diffuse_concentration,
+             py::arg("concentration"), py::arg("concentration_new"),
+             py::arg("dt"), py::arg("Kx"), py::arg("Ky"), py::arg("Kz"),
+             "Diffuse concentration field with anisotropic diffusion")
+        .def("apply_source_term", &FluidSolver::apply_source_term,
+             py::arg("concentration"), py::arg("sources"),
+             py::arg("current_time"), py::arg("dt"),
+             "Apply aerosol source terms to concentration field")
+        .def("apply_concentration_boundary_conditions", &FluidSolver::apply_concentration_boundary_conditions,
+             py::arg("concentration"), py::arg("boundary_value") = 0.0,
+             "Apply Dirichlet boundary conditions to concentration field")
+        .def("solve_advection_diffusion", &FluidSolver::solve_advection_diffusion,
+             py::arg("velocity"), py::arg("concentration"),
+             py::arg("config"), py::arg("sources"), py::arg("output_dir") = "",
+             "Solve full advection-diffusion equation for aerosol dispersion")
+        .def("set_config", &FluidSolver::set_config,
+             py::arg("config"),
+             "Set solver configuration")
+        .def("get_config", &FluidSolver::config,
+             "Get solver configuration");
 
     m.def("get_omp_num_threads", []() { return omp_get_max_threads(); });
     m.def("set_omp_num_threads", [](int n) { omp_set_num_threads(n); });
