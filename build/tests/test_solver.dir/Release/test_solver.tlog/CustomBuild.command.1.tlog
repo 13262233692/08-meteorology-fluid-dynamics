@@ -1,0 +1,10 @@
+^D:\SOLO-0616-2\08-METEOROLOGY-FLUID-DYNAMICS\TESTS\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/SOLO-0616-2/08-meteorology-fluid-dynamics -BD:/SOLO-0616-2/08-meteorology-fluid-dynamics/build --check-stamp-file D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/tests/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

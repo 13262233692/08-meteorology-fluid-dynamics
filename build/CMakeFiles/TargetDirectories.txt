@@ -1,0 +1,8 @@
+D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/CMakeFiles/mfd_core.dir
+D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/CMakeFiles/mfd_python.dir
+D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/CMakeFiles/RUN_TESTS.dir
+D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/CMakeFiles/ALL_BUILD.dir
+D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/CMakeFiles/ZERO_CHECK.dir
+D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/tests/CMakeFiles/test_solver.dir
+D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/tests/CMakeFiles/test_grid.dir
+D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/tests/CMakeFiles/RUN_TESTS.dir

@@ -1,0 +1,36 @@
+# CMake generated Testfile for 
+# Source directory: D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests
+# Build directory: D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/tests
+# 
+# This file includes the relevant testing commands required for 
+# testing this directory and lists subdirectories to be tested as well.
+if(CTEST_CONFIGURATION_TYPE MATCHES "^([Dd][Ee][Bb][Uu][Gg])$")
+  add_test(test_solver "D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/tests/Debug/test_solver.exe")
+  set_tests_properties(test_solver PROPERTIES  _BACKTRACE_TRIPLES "D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests/CMakeLists.txt;3;add_test;D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Rr][Ee][Ll][Ee][Aa][Ss][Ee])$")
+  add_test(test_solver "D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/tests/Release/test_solver.exe")
+  set_tests_properties(test_solver PROPERTIES  _BACKTRACE_TRIPLES "D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests/CMakeLists.txt;3;add_test;D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Mm][Ii][Nn][Ss][Ii][Zz][Ee][Rr][Ee][Ll])$")
+  add_test(test_solver "D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/tests/MinSizeRel/test_solver.exe")
+  set_tests_properties(test_solver PROPERTIES  _BACKTRACE_TRIPLES "D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests/CMakeLists.txt;3;add_test;D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Rr][Ee][Ll][Ww][Ii][Tt][Hh][Dd][Ee][Bb][Ii][Nn][Ff][Oo])$")
+  add_test(test_solver "D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/tests/RelWithDebInfo/test_solver.exe")
+  set_tests_properties(test_solver PROPERTIES  _BACKTRACE_TRIPLES "D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests/CMakeLists.txt;3;add_test;D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests/CMakeLists.txt;0;")
+else()
+  add_test(test_solver NOT_AVAILABLE)
+endif()
+if(CTEST_CONFIGURATION_TYPE MATCHES "^([Dd][Ee][Bb][Uu][Gg])$")
+  add_test(test_grid "D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/tests/Debug/test_grid.exe")
+  set_tests_properties(test_grid PROPERTIES  _BACKTRACE_TRIPLES "D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests/CMakeLists.txt;7;add_test;D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Rr][Ee][Ll][Ee][Aa][Ss][Ee])$")
+  add_test(test_grid "D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/tests/Release/test_grid.exe")
+  set_tests_properties(test_grid PROPERTIES  _BACKTRACE_TRIPLES "D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests/CMakeLists.txt;7;add_test;D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Mm][Ii][Nn][Ss][Ii][Zz][Ee][Rr][Ee][Ll])$")
+  add_test(test_grid "D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/tests/MinSizeRel/test_grid.exe")
+  set_tests_properties(test_grid PROPERTIES  _BACKTRACE_TRIPLES "D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests/CMakeLists.txt;7;add_test;D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Rr][Ee][Ll][Ww][Ii][Tt][Hh][Dd][Ee][Bb][Ii][Nn][Ff][Oo])$")
+  add_test(test_grid "D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/tests/RelWithDebInfo/test_grid.exe")
+  set_tests_properties(test_grid PROPERTIES  _BACKTRACE_TRIPLES "D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests/CMakeLists.txt;7;add_test;D:/SOLO-0616-2/08-meteorology-fluid-dynamics/tests/CMakeLists.txt;0;")
+else()
+  add_test(test_grid NOT_AVAILABLE)
+endif()

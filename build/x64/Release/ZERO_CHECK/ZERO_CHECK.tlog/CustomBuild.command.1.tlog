@@ -1,0 +1,10 @@
+^D:\SOLO-0616-2\08-METEOROLOGY-FLUID-DYNAMICS\BUILD\CMAKEFILES\08306B9B4D3CA366A03993314D91DAF3\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/SOLO-0616-2/08-meteorology-fluid-dynamics -BD:/SOLO-0616-2/08-meteorology-fluid-dynamics/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/MeteorologyFluidDynamics.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

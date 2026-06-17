@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/cmake_install.cmake",
+		"D:/SOLO-0616-2/08-meteorology-fluid-dynamics/build/tests/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

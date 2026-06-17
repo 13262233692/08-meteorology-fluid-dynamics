@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\SOLO-0616-2\08-meteorology-fluid-dynamics\build\CMakeFiles\08306b9b4d3ca366a03993314d91daf3\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{FFF209C4-AE9A-3FC0-8143-E647831B6DA1}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
